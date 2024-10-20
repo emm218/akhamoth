@@ -1,0 +1,11 @@
+[workspace]
+resolver = "2"
+members = [
+    "akhamoth",
+    "akhc",
+]
+
+[workspace.package]
+authors = [ "Emmy Emmycelium" ]
+license = "GPL-3.0-or-later"
+edition = "2021"
