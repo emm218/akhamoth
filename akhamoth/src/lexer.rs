@@ -197,6 +197,8 @@ impl<'src> Cursor<'src> {
     }
 }
 
+/// returns an iterator over the tokens in the input. the second value in the tuple indicates if
+/// the token was preceeded by whitespace.
 pub fn tokenize(input: &str) -> impl Iterator<Item = (Token<'_>, bool)> {
     let mut cursor = Cursor::new(input);
     iter::from_fn(move || {
