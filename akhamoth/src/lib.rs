@@ -1,14 +1,21 @@
-pub fn add(left: usize, right: usize) -> usize {
-    left + right
+use std::{fs::read_to_string, path::Path};
+
+use thiserror::Error;
+
+mod lexer;
+
+#[derive(Debug, Error)]
+pub enum CompileError {
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+pub fn compile(path: &Path) -> Result<(), CompileError> {
+    let source = read_to_string(path)?;
 
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
+    for token in lexer::tokenize(&source) {
+        println!("{token:?}");
     }
+
+    Ok(())
 }

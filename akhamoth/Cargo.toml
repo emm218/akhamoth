@@ -6,3 +6,4 @@ license.workspace = true
 edition.workspace = true
 
 [dependencies]
+unicode-xid = "0.2.6"

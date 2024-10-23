@@ -7,3 +7,4 @@ edition.workspace = true
 
 [dependencies]
 akhamoth = { path = "../akhamoth" }
+clap = { version = "4.5.20", features = ["derive"] }

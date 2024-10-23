@@ -1,0 +1,9 @@
+/// sums the numbers in a list
+pub fn sum([h | t]: [int], acc) -> int {
+    Io.println("meow :3");
+    sum(t, acc + h)
+}
+
+pub fn sum([]: [int], acc) -> int {
+    acc
+}
