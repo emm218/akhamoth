@@ -6,4 +6,5 @@ license.workspace = true
 edition.workspace = true
 
 [dependencies]
+thiserror = "1.0.65"
 unicode-xid = "0.2.6"
