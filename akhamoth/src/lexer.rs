@@ -202,10 +202,11 @@ impl<'src> Cursor<'src> {
 pub fn tokenize(input: &str) -> impl Iterator<Item = (Token<'_>, bool)> {
     let mut cursor = Cursor::new(input);
     iter::from_fn(move || {
-        let token = cursor.next_token()?;
-        Some(match token {
-            Token::Whitespace => (cursor.next_token()?, true),
-            t => (t, false),
+        cursor.next_token().and_then(|t| {
+            Some(match t {
+                Token::Whitespace => (cursor.next_token()?, true),
+                t => (t, false),
+            })
         })
     })
 }
