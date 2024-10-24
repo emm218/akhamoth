@@ -5,7 +5,7 @@ use unicode_xid::UnicodeXID;
 #[derive(Debug)]
 pub enum Token<'src> {
     StringLiteral(Cow<'src, str>),
-    IntLiteral(i64),
+    IntLiteral(Result<i64, ParseIntError>),
     Identifier(&'src str),
     OpenDelim(DelimKind),
     CloseDelim(DelimKind),
@@ -16,7 +16,7 @@ pub enum Token<'src> {
     Whitespace,
     Operator(Operator),
     Comment(&'src str),
-    Unknown(char),
+    Unrecognized(&'src str),
 }
 
 #[derive(Debug)]
@@ -37,6 +37,22 @@ pub enum Operator {
     Div,
     Mul,
     Percent,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum ParseIntError {
+    #[error("empty int literal")]
+    Empty,
+    #[error("int literal out of range")]
+    Overflow,
+    #[error("invalid digit '{0}' for base {1}")]
+    InvalidDigit(char, u32),
+}
+
+impl From<ParseIntError> for Token<'_> {
+    fn from(e: ParseIntError) -> Self {
+        Self::IntLiteral(Err(e))
+    }
 }
 
 struct Cursor<'src> {
@@ -99,30 +115,8 @@ impl<'src> Cursor<'src> {
                 let len = self.token_length();
                 Token::Identifier(&source[..len])
             }
+            c @ '0'..='9' => self.number(source, c),
             '"' => self.string_literal(),
-            '0' => {
-                self.reset_token();
-                match self.peek() {
-                    'b' => {
-                        self.bump();
-                        self.reset_token();
-                        self.number(&source[2..], 2)
-                    }
-                    'o' => {
-                        self.bump();
-                        self.reset_token();
-                        self.number(&source[2..], 8)
-                    }
-                    'x' => {
-                        self.bump();
-                        self.reset_token();
-                        self.number(&source[2..], 16)
-                    }
-                    '0'..='9' => self.number(source, 10),
-                    _ => Token::IntLiteral(0),
-                }
-            }
-            '1'..='9' => self.number(source, 10),
             '/' => match self.peek() {
                 '/' => {
                     self.eat_while(|c| c != '\n');
@@ -159,17 +153,62 @@ impl<'src> Cursor<'src> {
             },
             '.' => Token::Operator(Operator::Dot),
             '%' => Token::Operator(Operator::Percent),
-            _ => Token::Unknown(first),
+            _ => {
+                self.eat_while(is_unknown);
+                let len = self.token_length();
+                Token::Unrecognized(&source[..len])
+            }
         };
         self.reset_token();
         Some(token)
     }
 
-    fn number(&mut self, source: &'src str, radix: u32) -> Token<'static> {
-        self.eat_while(|c| c.is_digit(radix));
+    fn number(&mut self, source: &'src str, first_char: char) -> Token<'static> {
+        let (lo, base) = if first_char == '0' {
+            match self.peek() {
+                'b' => (2, 2),
+                'o' => (2, 8),
+                'x' => (2, 16),
+                _ => (0, 10),
+            }
+        } else {
+            (0, 10)
+        };
+
+        if lo != 0 {
+            self.bump();
+        }
+
+        loop {
+            let c = self.peek();
+            if c == '_' || c.is_digit(base) {
+                self.bump();
+            } else if is_id_continue(c) {
+                self.eat_while(is_id_continue);
+                return ParseIntError::InvalidDigit(c, base).into();
+            } else {
+                break;
+            }
+        }
+
+        let mut val = first_char.to_digit(base).unwrap() as i64;
 
         let len = self.token_length();
-        Token::IntLiteral(i64::from_str_radix(&source[..len], radix).unwrap())
+        let digits = &source[lo..len];
+        // valid digits are all ascii so we can loop over bytes instead of characters
+        for digit in digits.bytes() {
+            if digit == b'_' {
+                continue;
+            }
+            val *= base as i64;
+            val += match digit {
+                b'a'..=b'f' => digit + 0xA - b'a',
+                b'A'..=b'F' => digit + 0xA - b'A',
+                _ => digit - b'0',
+            } as i64;
+        }
+
+        Token::IntLiteral(Ok(val))
     }
 
     fn string_literal(&mut self) -> Token<'src> {
@@ -217,6 +256,32 @@ fn is_id_start(c: char) -> bool {
 
 fn is_id_continue(c: char) -> bool {
     c.is_xid_continue()
+}
+
+fn is_unknown(c: char) -> bool {
+    !(c.is_whitespace()
+        || c.is_xid_continue()
+        || matches!(
+            c,
+            '"' | '/'
+                | '|'
+                | ':'
+                | ';'
+                | '('
+                | '['
+                | '{'
+                | ')'
+                | ']'
+                | '}'
+                | '+'
+                | '-'
+                | '*'
+                | '='
+                | '.'
+                | '%'
+                | '<'
+                | '>'
+        ))
 }
 
 // TODO: actually unescape string lol
