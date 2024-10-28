@@ -25,8 +25,8 @@ impl CompileSession {
     pub fn compile<P: Into<PathBuf>>(&mut self, path: P) -> Result<(), CompileError> {
         let source = self.source_map.load_file(path)?;
 
-        for (t, _) in lexer::tokenize(&source) {
-            println!("{t:?}");
+        for (lexer::Token { span, .. }, _) in lexer::tokenize(&source) {
+            println!("{}", self.source_map.span_to_string(span));
         }
 
         Ok(())

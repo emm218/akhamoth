@@ -69,6 +69,28 @@ impl SourceMap {
 
         Ok(source_file)
     }
+
+    /// lookup the source file that contains a given offset.
+    ///
+    /// This doesn't handle the case where the offset is past the end of the source map
+    pub fn lookup_source_file(&self, pos: u32) -> Rc<SourceFile> {
+        let idx = self.lookup_source_file_idx(pos);
+        self.files[idx].clone()
+    }
+
+    fn lookup_source_file_idx(&self, pos: u32) -> usize {
+        self.files.partition_point(|f| f.start_pos <= pos) - 1
+    }
+
+    pub fn span_to_string(&self, span: Span) -> String {
+        let file = self.lookup_source_file(span.lo);
+        let lo = (span.lo - file.start_pos) as usize;
+        let hi = lo + span.len as usize;
+
+        let src = &file.src;
+
+        src[lo..hi].into()
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
