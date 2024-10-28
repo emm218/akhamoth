@@ -1,10 +1,13 @@
-use std::path::PathBuf;
+use std::{fmt::Display, path::PathBuf};
 
-use source::LoadError;
+use diagnostics::{Context, Diagnostic, EmitDiagnostic};
+use source::{LoadError, SourceFile, SourceMap};
 use thiserror::Error;
 
+pub mod diagnostics;
 mod lexer;
-mod source;
+mod parser;
+pub mod source;
 
 #[derive(Debug, Error)]
 pub enum CompileError {
@@ -13,22 +16,46 @@ pub enum CompileError {
 }
 
 #[derive(Default)]
-pub struct CompileSession {
-    source_map: source::SourceMap,
+pub struct CompileSession<E: EmitDiagnostic> {
+    source_map: SourceMap,
+    pub ed: E,
 }
 
-impl CompileSession {
-    pub fn new() -> Self {
-        Self::default()
+impl<E: EmitDiagnostic> CompileSession<E> {
+    pub fn new(ed: E) -> Self {
+        Self {
+            ed,
+            source_map: SourceMap::default(),
+        }
     }
 
-    pub fn compile<P: Into<PathBuf>>(&mut self, path: P) -> Result<(), CompileError> {
-        let source = self.source_map.load_file(path)?;
+    pub fn compile(&mut self, path: PathBuf) -> Result<(), CompileError> {
+        let source = self.source_map.load_file(&path);
 
-        for (lexer::Token { span, .. }, _) in lexer::tokenize(&source) {
-            println!("{}", self.source_map.span_to_string(span));
+        match source {
+            Ok(source) => self.compile_sf(&source),
+            Err(e) => {
+                self.error(&e, Context::File(&path));
+                Err(e.into())
+            }
         }
+    }
 
+    pub fn compile_sf(&mut self, sf: &SourceFile) -> Result<(), CompileError> {
+        let mut parser = parser::Parser::new(self);
+
+        let tokens = lexer::tokenize(sf);
+        let ast = parser.parse(tokens);
         Ok(())
+    }
+
+    pub fn error(&mut self, msg: &dyn Display, ctx: Context) {
+        self.ed
+            .emit_diagnostic(&self.source_map, Diagnostic::error(msg, ctx))
+    }
+
+    pub fn warn(&mut self, msg: &dyn Display, ctx: Context) {
+        self.ed
+            .emit_diagnostic(&self.source_map, Diagnostic::warn(msg, ctx))
     }
 }

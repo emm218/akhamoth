@@ -18,7 +18,10 @@ impl Token<'_> {
 
 #[derive(Debug)]
 pub enum TokenInner<'src> {
-    StringLiteral(Cow<'src, str>),
+    StringLiteral {
+        contents: Cow<'src, str>,
+        unclosed: bool,
+    },
     IntLiteral(Result<i64, ParseIntError>),
     Identifier(&'src str),
     OpenDelim(DelimKind),
@@ -30,7 +33,7 @@ pub enum TokenInner<'src> {
     Whitespace,
     Operator(Operator),
     Comment(&'src str),
-    Unrecognized(&'src str),
+    Unrecognized,
 }
 
 #[derive(Debug)]
@@ -72,20 +75,17 @@ impl From<ParseIntError> for TokenInner<'_> {
 struct Cursor<'src> {
     /// unconsumed characters
     len_remaining: usize,
-    /// start_pos within source map
-    start_pos: u32,
-    /// position of the start of the current
+    /// position of the start of the current token
     pos: u32,
     chars: Chars<'src>,
 }
 
 impl<'src> Cursor<'src> {
     fn new(input: &'src SourceFile) -> Self {
-        let start_pos = input.start_pos;
+        let pos = input.start_pos;
 
         Self {
-            start_pos,
-            pos: start_pos,
+            pos,
             len_remaining: input.src.len(),
             chars: input.src.chars(),
         }
@@ -178,8 +178,7 @@ impl<'src> Cursor<'src> {
             '%' => TokenInner::Operator(Operator::Percent),
             _ => {
                 self.eat_while(is_unknown);
-                let len = self.token_length();
-                TokenInner::Unrecognized(&source[..len])
+                TokenInner::Unrecognized
             }
         };
         let span = Span::new(self.pos, self.token_length() as u32);
@@ -188,6 +187,7 @@ impl<'src> Cursor<'src> {
     }
 
     // TODO: this still feels like it could be a lot cleaner :sob:
+    // TODO: need to detect and error on empty int literals
     fn number(&mut self, source: &'src str, first_char: char) -> Result<i64, ParseIntError> {
         let (lo, base) = if first_char == '0' {
             match self.peek() {
@@ -246,7 +246,10 @@ impl<'src> Cursor<'src> {
             match c {
                 '"' => {
                     let len = self.token_length() - 2;
-                    return TokenInner::StringLiteral(unescape(&source[..len]));
+                    return TokenInner::StringLiteral {
+                        contents: unescape(&source[..len]),
+                        unclosed: false,
+                    };
                 }
                 '\\' if self.peek() == '\\' || self.peek() == '"' => {
                     self.bump();
@@ -260,7 +263,10 @@ impl<'src> Cursor<'src> {
         self.chars = source.chars();
         self.eat_while(|c| c != '\n');
         let len = self.token_length();
-        TokenInner::StringLiteral(source[..len].into())
+        TokenInner::StringLiteral {
+            contents: source[..len].into(),
+            unclosed: true,
+        }
     }
 }
 

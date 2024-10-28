@@ -1,19 +1,24 @@
-use std::{fs, io, path::PathBuf, rc::Rc};
+use std::{
+    fmt::{self, Display, Formatter},
+    fs, io,
+    path::{Path, PathBuf},
+    rc::Rc,
+};
 
 pub struct SourceFile {
     /// path to this file on disk
     pub path: PathBuf,
     /// the full source of the file
-    pub src: String,
+    pub(crate) src: String,
     /// absolute start position of this file in source map
-    pub start_pos: u32,
+    pub(crate) start_pos: u32,
     /// relative byte offsets of each newline
     lines: Vec<u32>,
 }
 
 impl SourceFile {
-    pub fn new<P: Into<PathBuf>>(path: P, start_pos: u32) -> Result<Self, io::Error> {
-        let path = path.into();
+    pub fn new<P: AsRef<Path>>(path: P, start_pos: u32) -> Result<Self, io::Error> {
+        let path = path.as_ref().to_owned();
         let src = fs::read_to_string(&path)?;
 
         let lines = src
@@ -32,7 +37,7 @@ impl SourceFile {
     }
 
     pub fn line_number(&self, byte_offset: u32) -> usize {
-        self.lines.partition_point(|&x| x < byte_offset)
+        self.lines.partition_point(|&x| x < byte_offset) + 1
     }
 
     pub fn end_position(&self) -> u32 {
@@ -54,7 +59,10 @@ pub struct SourceMap {
 }
 
 impl SourceMap {
-    pub fn load_file<P: Into<PathBuf>>(&mut self, path: P) -> Result<Rc<SourceFile>, LoadError> {
+    pub(crate) fn load_file<P: AsRef<Path>>(
+        &mut self,
+        path: P,
+    ) -> Result<Rc<SourceFile>, LoadError> {
         let start_pos = match self.files.last() {
             Some(f) => f
                 .end_position()
@@ -63,7 +71,7 @@ impl SourceMap {
             None => 0,
         };
 
-        let source_file = Rc::new(SourceFile::new(path.into(), start_pos)?);
+        let source_file = Rc::new(SourceFile::new(path, start_pos)?);
 
         self.files.push(source_file.clone());
 
@@ -73,7 +81,7 @@ impl SourceMap {
     /// lookup the source file that contains a given offset.
     ///
     /// This doesn't handle the case where the offset is past the end of the source map
-    pub fn lookup_source_file(&self, pos: u32) -> Rc<SourceFile> {
+    pub(crate) fn lookup_source_file(&self, pos: u32) -> Rc<SourceFile> {
         let idx = self.lookup_source_file_idx(pos);
         self.files[idx].clone()
     }
@@ -90,6 +98,29 @@ impl SourceMap {
         let src = &file.src;
 
         src[lo..hi].into()
+    }
+
+    pub fn span_to_location(&self, Span { lo, .. }: Span) -> Location {
+        let file = self.lookup_source_file(lo);
+        let offset = lo - file.start_pos;
+
+        let line = file.line_number(offset);
+        let col = (lo - file.lines[line - 2]) as usize;
+
+        Location { file, line, col }
+    }
+}
+
+pub struct Location {
+    pub file: Rc<SourceFile>,
+    pub line: usize,
+    pub col: usize,
+}
+
+impl Display for Location {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        let Location { file, line, col } = self;
+        f.write_fmt(format_args!("{}:{line}:{col}", file.path.display()))
     }
 }
 
