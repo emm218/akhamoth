@@ -21,12 +21,13 @@ impl SourceFile {
         let path = path.as_ref().to_owned();
         let src = fs::read_to_string(&path)?;
 
-        let lines = src
-            .bytes()
-            .enumerate()
-            .filter(|&(_, b)| b == b'\n')
-            .map(|(i, _)| i as u32)
-            .collect::<Vec<_>>();
+        let mut lines = vec![0];
+        lines.extend(
+            src.bytes()
+                .enumerate()
+                .filter(|&(_, b)| b == b'\n')
+                .map(|(i, _)| (i + 1) as u32),
+        );
 
         Ok(Self {
             path,
@@ -37,7 +38,7 @@ impl SourceFile {
     }
 
     pub fn line_number(&self, byte_offset: u32) -> usize {
-        self.lines.partition_point(|&x| x < byte_offset) + 1
+        self.lines.partition_point(|&x| x <= byte_offset)
     }
 
     pub fn end_position(&self) -> u32 {
@@ -105,7 +106,7 @@ impl SourceMap {
         let offset = lo - file.start_pos;
 
         let line = file.line_number(offset);
-        let col = (lo - file.lines[line - 2]) as usize;
+        let col = (lo - file.lines[line - 1] + 1) as usize;
 
         Location { file, line, col }
     }
