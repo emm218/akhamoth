@@ -2,8 +2,22 @@ use std::{borrow::Cow, iter, str::Chars};
 
 use unicode_xid::UnicodeXID;
 
+use crate::source::{SourceFile, Span};
+
 #[derive(Debug)]
-pub enum Token<'src> {
+pub struct Token<'src> {
+    pub span: Span,
+    pub inner: TokenInner<'src>,
+}
+
+impl Token<'_> {
+    fn is_whitespace(&self) -> bool {
+        matches!(self.inner, TokenInner::Whitespace)
+    }
+}
+
+#[derive(Debug)]
+pub enum TokenInner<'src> {
     StringLiteral(Cow<'src, str>),
     IntLiteral(Result<i64, ParseIntError>),
     Identifier(&'src str),
@@ -49,7 +63,7 @@ pub enum ParseIntError {
     InvalidDigit(char, u32),
 }
 
-impl From<ParseIntError> for Token<'_> {
+impl From<ParseIntError> for TokenInner<'_> {
     fn from(e: ParseIntError) -> Self {
         Self::IntLiteral(Err(e))
     }
@@ -58,14 +72,22 @@ impl From<ParseIntError> for Token<'_> {
 struct Cursor<'src> {
     /// unconsumed characters
     len_remaining: usize,
+    /// start_pos within source map
+    start_pos: u32,
+    /// position of the start of the current
+    pos: u32,
     chars: Chars<'src>,
 }
 
 impl<'src> Cursor<'src> {
-    fn new(input: &'src str) -> Self {
+    fn new(input: &'src SourceFile) -> Self {
+        let start_pos = input.start_pos;
+
         Self {
-            len_remaining: input.len(),
-            chars: input.chars(),
+            start_pos,
+            pos: start_pos,
+            len_remaining: input.src.len(),
+            chars: input.src.chars(),
         }
     }
 
@@ -98,72 +120,75 @@ impl<'src> Cursor<'src> {
 
     /// reset to begin lexing another token
     fn reset_token(&mut self) {
-        self.len_remaining = self.as_str().len()
+        self.pos += self.token_length() as u32;
+        self.len_remaining = self.as_str().len();
     }
 
     fn next_token(&mut self) -> Option<Token<'src>> {
         let source = self.as_str();
         let first = self.bump()?;
 
-        let token = match first {
+        let inner = match first {
             c if c.is_whitespace() => {
                 self.eat_while(|c| c.is_whitespace());
-                Token::Whitespace
+                TokenInner::Whitespace
             }
             c if is_id_start(c) => {
                 self.eat_while(is_id_continue);
                 let len = self.token_length();
-                Token::Identifier(&source[..len])
+                TokenInner::Identifier(&source[..len])
             }
-            c @ '0'..='9' => self.number(source, c),
+            c @ '0'..='9' => TokenInner::IntLiteral(self.number(source, c)),
             '"' => self.string_literal(),
             '/' => match self.peek() {
                 '/' => {
                     self.eat_while(|c| c != '\n');
                     let len = self.token_length();
-                    Token::Comment(&source[2..len])
+                    TokenInner::Comment(&source[2..len])
                 }
-                _ => Token::Operator(Operator::Div),
+                _ => TokenInner::Operator(Operator::Div),
             },
-            '|' => Token::Pipe,
-            ',' => Token::Comma,
-            ':' => Token::Colon,
-            ';' => Token::Semicolon,
-            '(' => Token::OpenDelim(DelimKind::Paren),
-            '[' => Token::OpenDelim(DelimKind::Bracket),
-            '{' => Token::OpenDelim(DelimKind::Brace),
-            ')' => Token::CloseDelim(DelimKind::Paren),
-            ']' => Token::CloseDelim(DelimKind::Bracket),
-            '}' => Token::CloseDelim(DelimKind::Brace),
-            '+' => Token::Operator(Operator::Plus),
+            '|' => TokenInner::Pipe,
+            ',' => TokenInner::Comma,
+            ':' => TokenInner::Colon,
+            ';' => TokenInner::Semicolon,
+            '(' => TokenInner::OpenDelim(DelimKind::Paren),
+            '[' => TokenInner::OpenDelim(DelimKind::Bracket),
+            '{' => TokenInner::OpenDelim(DelimKind::Brace),
+            ')' => TokenInner::CloseDelim(DelimKind::Paren),
+            ']' => TokenInner::CloseDelim(DelimKind::Bracket),
+            '}' => TokenInner::CloseDelim(DelimKind::Brace),
+            '+' => TokenInner::Operator(Operator::Plus),
             '-' => match self.peek() {
                 '>' => {
                     self.bump();
-                    Token::Operator(Operator::Arrow)
+                    TokenInner::Operator(Operator::Arrow)
                 }
-                _ => Token::Operator(Operator::Minus),
+                _ => TokenInner::Operator(Operator::Minus),
             },
-            '*' => Token::Operator(Operator::Mul),
+            '*' => TokenInner::Operator(Operator::Mul),
             '=' => match self.peek() {
                 '>' => {
                     self.bump();
-                    Token::Operator(Operator::FatArrow)
+                    TokenInner::Operator(Operator::FatArrow)
                 }
-                _ => Token::Operator(Operator::Equals),
+                _ => TokenInner::Operator(Operator::Equals),
             },
-            '.' => Token::Operator(Operator::Dot),
-            '%' => Token::Operator(Operator::Percent),
+            '.' => TokenInner::Operator(Operator::Dot),
+            '%' => TokenInner::Operator(Operator::Percent),
             _ => {
                 self.eat_while(is_unknown);
                 let len = self.token_length();
-                Token::Unrecognized(&source[..len])
+                TokenInner::Unrecognized(&source[..len])
             }
         };
+        let span = Span::new(self.pos, self.token_length() as u32);
         self.reset_token();
-        Some(token)
+        Some(Token { inner, span })
     }
 
-    fn number(&mut self, source: &'src str, first_char: char) -> Token<'static> {
+    // TODO: this still feels like it could be a lot cleaner :sob:
+    fn number(&mut self, source: &'src str, first_char: char) -> Result<i64, ParseIntError> {
         let (lo, base) = if first_char == '0' {
             match self.peek() {
                 'b' => (2, 2),
@@ -185,7 +210,7 @@ impl<'src> Cursor<'src> {
                 self.bump();
             } else if is_id_continue(c) {
                 self.eat_while(is_id_continue);
-                return ParseIntError::InvalidDigit(c, base).into();
+                return Err(ParseIntError::InvalidDigit(c, base));
             } else {
                 break;
             }
@@ -194,31 +219,34 @@ impl<'src> Cursor<'src> {
         let mut val = first_char.to_digit(base).unwrap() as i64;
 
         let len = self.token_length();
-        let digits = &source[lo..len];
         // valid digits are all ascii so we can loop over bytes instead of characters
-        for digit in digits.bytes() {
+        for digit in source[lo..len].bytes() {
             if digit == b'_' {
                 continue;
             }
-            val *= base as i64;
-            val += match digit {
-                b'a'..=b'f' => digit + 0xA - b'a',
-                b'A'..=b'F' => digit + 0xA - b'A',
-                _ => digit - b'0',
-            } as i64;
+            val = val
+                .checked_mul(base as i64)
+                .and_then(|v| {
+                    v.checked_add(match digit {
+                        b'a'..=b'f' => digit + 0xA - b'a',
+                        b'A'..=b'F' => digit + 0xA - b'A',
+                        _ => digit - b'0',
+                    } as i64)
+                })
+                .ok_or(ParseIntError::Overflow)?;
         }
 
-        Token::IntLiteral(Ok(val))
+        Ok(val)
     }
 
-    fn string_literal(&mut self) -> Token<'src> {
+    fn string_literal(&mut self) -> TokenInner<'src> {
         let source = self.as_str();
 
         while let Some(c) = self.bump() {
             match c {
                 '"' => {
                     let len = self.token_length() - 2;
-                    return Token::StringLiteral(unescape(&source[..len]));
+                    return TokenInner::StringLiteral(unescape(&source[..len]));
                 }
                 '\\' if self.peek() == '\\' || self.peek() == '"' => {
                     self.bump();
@@ -232,19 +260,20 @@ impl<'src> Cursor<'src> {
         self.chars = source.chars();
         self.eat_while(|c| c != '\n');
         let len = self.token_length();
-        Token::StringLiteral(source[..len].into())
+        TokenInner::StringLiteral(source[..len].into())
     }
 }
 
 /// returns an iterator over the tokens in the input. the second value in the tuple indicates if
 /// the token was preceeded by whitespace.
-pub fn tokenize(input: &str) -> impl Iterator<Item = (Token<'_>, bool)> {
+pub fn tokenize(input: &SourceFile) -> impl Iterator<Item = (Token<'_>, bool)> {
     let mut cursor = Cursor::new(input);
     iter::from_fn(move || {
         cursor.next_token().and_then(|t| {
-            Some(match t {
-                Token::Whitespace => (cursor.next_token()?, true),
-                t => (t, false),
+            Some(if t.is_whitespace() {
+                (cursor.next_token()?, true)
+            } else {
+                (t, false)
             })
         })
     })

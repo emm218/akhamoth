@@ -1,21 +1,34 @@
-use std::{fs::read_to_string, path::Path};
+use std::path::PathBuf;
 
+use source::LoadError;
 use thiserror::Error;
 
 mod lexer;
+mod source;
 
 #[derive(Debug, Error)]
 pub enum CompileError {
     #[error(transparent)]
-    Io(#[from] std::io::Error),
+    Load(#[from] LoadError),
 }
 
-pub fn compile(path: &Path) -> Result<(), CompileError> {
-    let source = read_to_string(path)?;
+#[derive(Default)]
+pub struct CompileSession {
+    source_map: source::SourceMap,
+}
 
-    for token in lexer::tokenize(&source) {
-        println!("{token:?}");
+impl CompileSession {
+    pub fn new() -> Self {
+        Self::default()
     }
 
-    Ok(())
+    pub fn compile<P: Into<PathBuf>>(&mut self, path: P) -> Result<(), CompileError> {
+        let source = self.source_map.load_file(path)?;
+
+        for (t, _) in lexer::tokenize(&source) {
+            println!("{t:?}");
+        }
+
+        Ok(())
+    }
 }

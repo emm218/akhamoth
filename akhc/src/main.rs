@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use akhamoth::{compile, CompileError};
+use akhamoth::{CompileError, CompileSession};
 use clap::Parser;
 
 #[derive(Debug, Parser)]
@@ -13,5 +13,8 @@ struct Opts {
 fn main() -> Result<(), CompileError> {
     let Opts { file } = Opts::parse();
 
-    compile(&file)
+    let mut session = CompileSession::new();
+
+    session.compile(&file)?;
+    session.compile(&file)
 }
