@@ -1,11 +1,12 @@
 use std::{
+    fmt::Display,
     io::{stderr, IsTerminal},
     path::PathBuf,
     process::exit,
 };
 
 use akhamoth::{
-    diagnostics::{Context, Diagnostic, EmitDiagnostic, Level},
+    diagnostics::{Context, EmitDiagnostic},
     source::SourceMap,
     CompileSession,
 };
@@ -41,17 +42,17 @@ fn main() {
         ColorSetting::Auto => stderr().is_terminal(),
     };
 
-    let ed = Diagnostics::new(color);
+    let diagnostics = Diagnostics::new(color);
 
-    let mut session = CompileSession::new(ed);
+    let mut session = CompileSession::new(diagnostics);
 
     for file in files {
         let _ = session.compile(file);
     }
 
-    let ed = session.ed;
+    let diagnostics = session.diagnostics;
 
-    if ed.errors > 0 {
+    if diagnostics.errors > 0 {
         let level = if color {
             "\x1b[31;1merror\x1b[0m"
         } else {
@@ -59,16 +60,16 @@ fn main() {
         };
         eprintln!(
             "{level}: could not compile project due to {} previous errors; {} warnings emitted",
-            ed.errors, ed.warnings
+            diagnostics.errors, diagnostics.warnings
         );
         exit(1)
-    } else if ed.warnings > 0 {
+    } else if diagnostics.warnings > 0 {
         let level = if color {
             "\x1b[33;1mwarning\x1b[0m"
         } else {
             "warning"
         };
-        eprintln!("{level}: {} warnings emitted", ed.warnings);
+        eprintln!("{level}: {} warnings emitted", diagnostics.warnings);
     }
 }
 
@@ -89,28 +90,28 @@ impl Diagnostics {
 }
 
 impl EmitDiagnostic for Diagnostics {
-    fn emit_diagnostic(
-        &mut self,
-        source_map: &SourceMap,
-        Diagnostic { level, msg, ctx }: Diagnostic,
-    ) {
-        let level = match level {
-            Level::Error => {
-                self.errors += 1;
-                if self.color {
-                    "\x1b[31;1merror\x1b[0m"
-                } else {
-                    "error"
-                }
+    fn error(&mut self, source_map: &SourceMap, msg: &dyn Display, ctx: Context) {
+        self.errors += 1;
+        let level = if self.color {
+            "\x1b[31;1merror\x1b[0m"
+        } else {
+            "error"
+        };
+
+        match ctx {
+            Context::Span(ctx) => eprintln!("{level}: {}: {msg}", source_map.span_to_location(ctx)),
+            Context::File(path) => {
+                eprintln!("{level}\x1b[0m: {}: {msg}", path.display())
             }
-            Level::Warning => {
-                self.warnings += 1;
-                if self.color {
-                    "\x1b[33;1mwarning\x1b[0m"
-                } else {
-                    "warning"
-                }
-            }
+        }
+    }
+
+    fn warn(&mut self, source_map: &SourceMap, msg: &dyn Display, ctx: Context) {
+        self.warnings += 1;
+        let level = if self.color {
+            "\x1b[33;1mwarning\x1b[0m"
+        } else {
+            "warning"
         };
 
         match ctx {

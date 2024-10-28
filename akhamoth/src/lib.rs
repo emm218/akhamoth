@@ -1,6 +1,6 @@
 use std::{fmt::Display, path::PathBuf};
 
-use diagnostics::{Context, Diagnostic, EmitDiagnostic};
+use diagnostics::{Context, EmitDiagnostic};
 use source::{LoadError, SourceFile, SourceMap};
 use thiserror::Error;
 
@@ -16,15 +16,15 @@ pub enum CompileError {
 }
 
 #[derive(Default)]
-pub struct CompileSession<E: EmitDiagnostic> {
+pub struct CompileSession<D: EmitDiagnostic> {
     source_map: SourceMap,
-    pub ed: E,
+    pub diagnostics: D,
 }
 
 impl<E: EmitDiagnostic> CompileSession<E> {
-    pub fn new(ed: E) -> Self {
+    pub fn new(diagnostics: E) -> Self {
         Self {
-            ed,
+            diagnostics,
             source_map: SourceMap::default(),
         }
     }
@@ -50,12 +50,10 @@ impl<E: EmitDiagnostic> CompileSession<E> {
     }
 
     pub fn error(&mut self, msg: &dyn Display, ctx: Context) {
-        self.ed
-            .emit_diagnostic(&self.source_map, Diagnostic::error(msg, ctx))
+        self.diagnostics.error(&self.source_map, msg, ctx)
     }
 
     pub fn warn(&mut self, msg: &dyn Display, ctx: Context) {
-        self.ed
-            .emit_diagnostic(&self.source_map, Diagnostic::warn(msg, ctx))
+        self.diagnostics.warn(&self.source_map, msg, ctx)
     }
 }
