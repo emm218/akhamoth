@@ -43,6 +43,10 @@ fn main() {
     };
 
     let diagnostics = Diagnostics::new(color);
+    if files.is_empty() {
+        diagnostics.print_error("no input files provided");
+        exit(1);
+    }
 
     let mut session = CompileSession::new(diagnostics);
 
@@ -53,23 +57,13 @@ fn main() {
     let diagnostics = session.diagnostics;
 
     if diagnostics.errors > 0 {
-        let level = if color {
-            "\x1b[31;1merror\x1b[0m"
-        } else {
-            "error"
-        };
-        eprintln!(
-            "{level}: could not compile project due to {} previous errors; {} warnings emitted",
+        diagnostics.print_error(&format!(
+            "could not compile project due to {} previous errors; {} warnings emitted",
             diagnostics.errors, diagnostics.warnings
-        );
+        ));
         exit(1)
     } else if diagnostics.warnings > 0 {
-        let level = if color {
-            "\x1b[33;1mwarning\x1b[0m"
-        } else {
-            "warning"
-        };
-        eprintln!("{level}: {} warnings emitted", diagnostics.warnings);
+        diagnostics.print_warning(&format!("{} warnings emitted", diagnostics.warnings));
     }
 }
 
@@ -87,38 +81,44 @@ impl Diagnostics {
             color,
         }
     }
-}
 
-impl EmitDiagnostic for Diagnostics {
-    fn error(&mut self, source_map: &SourceMap, msg: &dyn Display, ctx: Context) {
-        self.errors += 1;
+    pub fn print_error(&self, msg: &str) {
         let level = if self.color {
             "\x1b[31;1merror\x1b[0m"
         } else {
             "error"
         };
 
-        match ctx {
-            Context::Span(ctx) => eprintln!("{level}: {}: {msg}", source_map.span_to_location(ctx)),
-            Context::File(path) => {
-                eprintln!("{level}\x1b[0m: {}: {msg}", path.display())
-            }
-        }
+        eprintln!("{level}: {msg}")
     }
 
-    fn warn(&mut self, source_map: &SourceMap, msg: &dyn Display, ctx: Context) {
-        self.warnings += 1;
+    pub fn print_warning(&self, msg: &str) {
         let level = if self.color {
             "\x1b[33;1mwarning\x1b[0m"
         } else {
             "warning"
         };
 
-        match ctx {
-            Context::Span(ctx) => eprintln!("{level}: {}: {msg}", source_map.span_to_location(ctx)),
-            Context::File(path) => {
-                eprintln!("{level}\x1b[0m: {}: {msg}", path.display())
-            }
-        }
+        eprintln!("{level}: {msg}")
+    }
+}
+
+impl EmitDiagnostic for Diagnostics {
+    fn error(&mut self, source_map: &SourceMap, msg: &dyn Display, ctx: Context) {
+        self.errors += 1;
+
+        self.print_error(&match ctx {
+            Context::Span(ctx) => format!("{}: {msg}", source_map.span_to_location(ctx)),
+            Context::File(path) => format!("{}: {msg}", path.display()),
+        });
+    }
+
+    fn warn(&mut self, source_map: &SourceMap, msg: &dyn Display, ctx: Context) {
+        self.warnings += 1;
+
+        self.print_warning(&match ctx {
+            Context::Span(ctx) => format!("{}: {msg}", source_map.span_to_location(ctx)),
+            Context::File(path) => format!("{}: {msg}", path.display()),
+        });
     }
 }
