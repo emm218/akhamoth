@@ -8,12 +8,7 @@ use crate::source::{SourceFile, Span};
 pub struct Token<'src> {
     pub span: Span,
     pub inner: TokenInner<'src>,
-}
-
-impl Token<'_> {
-    fn is_whitespace(&self) -> bool {
-        matches!(self.inner, TokenInner::Whitespace)
-    }
+    pub whitespace: bool,
 }
 
 #[derive(Debug)]
@@ -30,7 +25,6 @@ pub enum TokenInner<'src> {
     Comma,
     Colon,
     Semicolon,
-    Whitespace,
     Operator(Operator),
     Comment(&'src str),
     Unrecognized,
@@ -124,15 +118,11 @@ impl<'src> Cursor<'src> {
         self.len_remaining = self.as_str().len();
     }
 
-    fn next_token(&mut self) -> Option<Token<'src>> {
+    fn next_token(&mut self, whitespace: bool) -> Option<Token<'src>> {
         let source = self.as_str();
         let first = self.bump()?;
 
         let inner = match first {
-            c if c.is_whitespace() => {
-                self.eat_while(|c| c.is_whitespace());
-                TokenInner::Whitespace
-            }
             c if is_id_start(c) => {
                 self.eat_while(is_id_continue);
                 let len = self.token_length();
@@ -183,7 +173,11 @@ impl<'src> Cursor<'src> {
         };
         let span = Span::new(self.pos, self.token_length() as u32);
         self.reset_token();
-        Some(Token { inner, span })
+        Some(Token {
+            inner,
+            span,
+            whitespace,
+        })
     }
 
     // TODO: this still feels like it could be a lot cleaner :sob:
@@ -272,16 +266,18 @@ impl<'src> Cursor<'src> {
 
 /// returns an iterator over the tokens in the input. the second value in the tuple indicates if
 /// the token was preceeded by whitespace.
-pub fn tokenize(input: &SourceFile) -> impl Iterator<Item = (Token<'_>, bool)> {
+pub fn tokenize(input: &SourceFile) -> impl Iterator<Item = Token<'_>> {
     let mut cursor = Cursor::new(input);
     iter::from_fn(move || {
-        cursor.next_token().and_then(|t| {
-            Some(if t.is_whitespace() {
-                (cursor.next_token()?, true)
-            } else {
-                (t, false)
-            })
-        })
+        let c = cursor.peek();
+        let whitespace = if c.is_whitespace() {
+            cursor.eat_while(|c| c.is_whitespace());
+            true
+        } else {
+            false
+        };
+        cursor.reset_token();
+        cursor.next_token(whitespace)
     })
 }
 
