@@ -1,5 +1,5 @@
 use std::{
-    fmt::Display,
+    fmt::Arguments as FmtArgs,
     io::{stderr, IsTerminal},
     path::PathBuf,
     process::exit,
@@ -7,7 +7,6 @@ use std::{
 
 use akhamoth::{
     diagnostics::{Context, EmitDiagnostic},
-    source::SourceMap,
     CompileSession,
 };
 use clap::{Parser, ValueEnum};
@@ -104,21 +103,25 @@ impl Diagnostics {
 }
 
 impl EmitDiagnostic for Diagnostics {
-    fn error(&mut self, source_map: &SourceMap, msg: &dyn Display, ctx: Context) {
+    fn error(&mut self, args: FmtArgs, ctx: Context) {
         self.errors += 1;
 
         self.print_error(&match ctx {
-            Context::Span(ctx) => format!("{}: {msg}", source_map.span_to_location(ctx)),
-            Context::File(path) => format!("{}: {msg}", path.display()),
+            Context::Source { span, src } => {
+                format!("{}: {args}", src.span_to_location(span))
+            }
+            Context::File(path) => format!("{}: {args}", path.display()),
         });
     }
 
-    fn warn(&mut self, source_map: &SourceMap, msg: &dyn Display, ctx: Context) {
+    fn warn(&mut self, args: FmtArgs, ctx: Context) {
         self.warnings += 1;
 
         self.print_warning(&match ctx {
-            Context::Span(ctx) => format!("{}: {msg}", source_map.span_to_location(ctx)),
-            Context::File(path) => format!("{}: {msg}", path.display()),
+            Context::Source { span, src } => {
+                format!("{}: {args}", src.span_to_location(span))
+            }
+            Context::File(path) => format!("{}: {args}", path.display()),
         });
     }
 }

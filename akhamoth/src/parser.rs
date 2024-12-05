@@ -1,7 +1,7 @@
 use std::borrow::Cow;
 
 use crate::{
-    diagnostics::{Context, EmitDiagnostic},
+    diagnostics::{error, Context, EmitDiagnostic},
     lexer::{Token, TokenInner},
     source::Span,
     CompileSession,
@@ -29,19 +29,22 @@ impl<'sess, E: EmitDiagnostic> Parser<'sess, E> {
         Self { session }
     }
 
-    pub fn parse<'src, I: Iterator<Item = (Token<'src>, bool)>>(
+    pub fn parse<'src>(
         &mut self,
-        input: I,
+        input: impl Iterator<Item = (Token<'src>, bool)>,
     ) -> impl Iterator<Item = Expr<'src>> {
         for (Token { inner, span }, _) in input {
+            let ctx = Context::Source {
+                span,
+                src: &self.session.source_map,
+            };
+            let d = &mut self.session.diagnostics;
             match inner {
-                TokenInner::StringLiteral { unclosed: true, .. } => self
-                    .session
-                    .error(&"unclosed string literal", Context::Span(span)),
-                TokenInner::IntLiteral(Err(e)) => self.session.error(&e, Context::Span(span)),
-                TokenInner::Unrecognized => self
-                    .session
-                    .error(&"unrecognized token", Context::Span(span)),
+                TokenInner::StringLiteral { unclosed: true, .. } => {
+                    error!(d, ctx, "unclosed string literal")
+                }
+                TokenInner::IntLiteral(Err(e)) => error!(d, ctx, "{e}"),
+                TokenInner::Unrecognized => error!(d, ctx, "unrecognized token"),
                 _ => (),
             }
         }
