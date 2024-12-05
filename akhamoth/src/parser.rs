@@ -8,17 +8,25 @@ use crate::{
 };
 
 #[derive(Debug)]
-pub struct Expr<'src> {
+struct Expr<'src> {
     span: Span,
     inner: ExprInner<'src>,
 }
 
 #[derive(Debug)]
-pub enum ExprInner<'src> {
+enum ExprInner<'src> {
     StringLiteral(Cow<'src, str>),
     IntLiteral(i64),
     Identifier(&'src str),
+    Block(BlockBody<'src>),
+    Call {
+        func: Box<Expr<'src>>,
+        args: Vec<Expr<'src>>,
+    },
 }
+
+#[derive(Debug)]
+struct BlockBody<'src>(Vec<Expr<'src>>);
 
 pub struct Parser<'sess, E: EmitDiagnostic> {
     session: &'sess mut CompileSession<E>,
@@ -29,11 +37,8 @@ impl<'sess, E: EmitDiagnostic> Parser<'sess, E> {
         Self { session }
     }
 
-    pub fn parse<'src>(
-        &mut self,
-        input: impl Iterator<Item = (Token<'src>, bool)>,
-    ) -> impl Iterator<Item = Expr<'src>> {
-        for (Token { inner, span }, _) in input {
+    pub fn parse<'src>(&mut self, input: impl Iterator<Item = Token<'src>>) {
+        for Token { inner, span, .. } in input {
             let ctx = Context::Source {
                 span,
                 src: &self.session.source_map,
@@ -45,10 +50,8 @@ impl<'sess, E: EmitDiagnostic> Parser<'sess, E> {
                 }
                 TokenInner::IntLiteral(Err(e)) => error!(d, ctx, "{e}"),
                 TokenInner::Unrecognized => error!(d, ctx, "unrecognized token"),
-                _ => (),
+                _ => println!("{inner:?}"),
             }
         }
-
-        std::iter::from_fn(|| None)
     }
 }

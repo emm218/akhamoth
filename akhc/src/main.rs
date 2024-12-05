@@ -32,6 +32,30 @@ struct Opts {
     color: ColorSetting,
 }
 
+macro_rules! error {
+    ($c:expr, $($arg:tt)*) => {
+        let level = if $c {
+            "\x1b[31;1merror\x1b[0m"
+        } else {
+            "error"
+        };
+
+        std::eprintln!("{level}: {}", std::format_args!($($arg)*));
+    }
+}
+
+macro_rules! warn {
+    ($c:expr, $($arg:tt)*) => {
+        let level = if $c {
+            "\x1b[33;1mwarning\x1b[0m"
+        } else {
+            "warning"
+        };
+
+        std::eprintln!("{level}: {}", std::format_args!($($arg)*));
+    }
+}
+
 fn main() {
     let Opts { files, color } = Opts::parse();
 
@@ -43,7 +67,7 @@ fn main() {
 
     let diagnostics = Diagnostics::new(color);
     if files.is_empty() {
-        diagnostics.print_error("no input files provided");
+        error!(color, "no input files provided");
         exit(1);
     }
 
@@ -53,16 +77,15 @@ fn main() {
         let _ = session.compile(file);
     }
 
-    let diagnostics = session.diagnostics;
+    let Diagnostics {
+        errors, warnings, ..
+    } = session.diagnostics;
 
-    if diagnostics.errors > 0 {
-        diagnostics.print_error(&format!(
-            "could not compile project due to {} previous errors; {} warnings emitted",
-            diagnostics.errors, diagnostics.warnings
-        ));
+    if errors > 0 {
+        error!(color, "could not compile project due to {errors} previous errors; {warnings} warnings emitted");
         exit(1)
-    } else if diagnostics.warnings > 0 {
-        diagnostics.print_warning(&format!("{} warnings emitted", diagnostics.warnings));
+    } else if warnings > 0 {
+        warn!(color, "{warnings} warnings emitted");
     }
 }
 
@@ -80,48 +103,18 @@ impl Diagnostics {
             color,
         }
     }
-
-    pub fn print_error(&self, msg: &str) {
-        let level = if self.color {
-            "\x1b[31;1merror\x1b[0m"
-        } else {
-            "error"
-        };
-
-        eprintln!("{level}: {msg}")
-    }
-
-    pub fn print_warning(&self, msg: &str) {
-        let level = if self.color {
-            "\x1b[33;1mwarning\x1b[0m"
-        } else {
-            "warning"
-        };
-
-        eprintln!("{level}: {msg}")
-    }
 }
 
 impl EmitDiagnostic for Diagnostics {
     fn error(&mut self, args: FmtArgs, ctx: Context) {
         self.errors += 1;
 
-        self.print_error(&match ctx {
-            Context::Source { span, src } => {
-                format!("{}: {args}", src.span_to_location(span))
-            }
-            Context::File(path) => format!("{}: {args}", path.display()),
-        });
+        error!(self.color, "{ctx}: {args}");
     }
 
     fn warn(&mut self, args: FmtArgs, ctx: Context) {
         self.warnings += 1;
 
-        self.print_warning(&match ctx {
-            Context::Source { span, src } => {
-                format!("{}: {args}", src.span_to_location(span))
-            }
-            Context::File(path) => format!("{}: {args}", path.display()),
-        });
+        warn!(self.color, "{ctx}: {args}");
     }
 }

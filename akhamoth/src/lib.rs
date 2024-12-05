@@ -48,7 +48,7 @@ impl<E: EmitDiagnostic> CompileSession<E> {
         let mut parser = Parser::new(self);
 
         let tokens = lexer::tokenize(sf);
-        let ast = parser.parse(tokens);
+        parser.parse(tokens);
         Ok(())
     }
 }

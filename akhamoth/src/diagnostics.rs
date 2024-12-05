@@ -1,10 +1,22 @@
-use std::{fmt, path::Path};
+use std::{
+    fmt::{self, Display},
+    path::Path,
+};
 
 use crate::source::{SourceMap, Span};
 
 pub enum Context<'a> {
     Source { span: Span, src: &'a SourceMap },
     File(&'a Path),
+}
+
+impl Display for Context<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Context::File(path) => write!(f, "{}", path.display()),
+            Context::Source { span, src } => write!(f, "{}", src.span_to_location(*span)),
+        }
+    }
 }
 
 /// trait for emitting diagnostic messages
